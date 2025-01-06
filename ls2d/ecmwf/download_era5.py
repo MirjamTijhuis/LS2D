@@ -1,7 +1,7 @@
 #
 # This file is part of LS2D.
 #
-# Copyright (c) 2017-2022 Wageningen University & Research
+# Copyright (c) 2017-2024 Wageningen University & Research
 # Author: Bart van Stratum (WUR)
 #
 # LS2D is free software: you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 import subprocess as sp
 import datetime
 import sys,os
-import pickle
+import dill as pickle
 import requests
 
 # Third party modules
@@ -31,6 +31,7 @@ import numpy as np
 # LS2D modules
 import ls2d.ecmwf.era_tools as era_tools
 from ls2d.src.messages import *
+from ls2d.ecmwf.patch_cds_ads import patch_netcdf
 
 # Yikes, but necessary (?) if you want to use
 # MARS downloads without the Python CDS api installed?
@@ -154,10 +155,18 @@ def _download_era5_file(settings):
 
                 if state == 'completed':
                     message('Request finished, downloading NetCDF file')
+
                     cds_request.download(nc_file)
+                    f.close()
+                    os.remove(pickle_file)
+
+                    # Patch NetCDF file, to make the (+/-) identical to the old CDS
+                    # files, and files retrieved from MARS.
+                    patch_netcdf(nc_file)
+
                     finished = True
 
-                elif state in ('queued', 'running'):
+                elif state in ('queued', 'accepted', 'running'):
                     message('Request not finished, current status = \"{}\"'.format(state))
 
                 else:
@@ -303,7 +312,7 @@ def _download_era5_file(settings):
     return finished
 
 
-def download_era5(settings):
+def download_era5(settings, exit_when_waiting=True):
     """
     Download all required ERA5 fields for an experiment
     between `starttime` and `endtime`
@@ -387,8 +396,11 @@ def download_era5(settings):
             print(' | One or more requests are not finished.                  |')
             print(' | For CDS request, you can monitor the progress at:       |')
             print(' | https://cds.climate.copernicus.eu/cdsapp#!/yourrequests |')
-            print(' | This script will stop now, you can restart it           |')
-            print(' | at any time to retry, or download the results.          |')
+            if exit_when_waiting:
+                print(' | This script will stop now, you can restart it           |')
+                print(' | at any time to retry, or download the results.          |')
+                print(' -----------------------------------------------------------')
+                sys.exit(0)
             print(' -----------------------------------------------------------')
         else:
             print(' -------------------------------------------------')
@@ -397,4 +409,4 @@ def download_era5(settings):
             print(' | at any time to retry.                         |')
             print(' -------------------------------------------------')
 
-        sys.exit(1)
+    return finished

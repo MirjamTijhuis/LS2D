@@ -1,20 +1,43 @@
-# LS2D
-(LS)<sup>2</sup>D: LES and SCM - Large Scale Dynamics
+# (LS)<sup>2</sup>D: LES and SCM - Large Scale Dynamics
 
-Python package to download ERA5 (using CDS or MARS), and calculate the initial conditions and large scale forcings, for large eddy simulation (LES) or single column model (SCM) experiments.
+[![PyPI version](https://badge.fury.io/py/ls2d.svg)](https://pypi.org/project/ls2d/)
+[![Static Badge](https://img.shields.io/badge/JAMES-10.1029%2F2023MS003750-blue?link=https%3A%2F%2Fdoi.org%2F10.1029%2F2023MS003750)](https://doi.org/10.1029/2023MS003750)
 
-### Required Python modules
-- numpy
-- scipy
-- matplotlib
-- netCDF4
-- cdsapi (*)
+(LS)<sup>2</sup>D is a Python toolkit, developed to simplify all the steps required to downscale ERA5 with doubly-periodic large-eddy simulation (LES), or single-column models (SCMs). For the retrieval of ERA data, it relies on the Copernicus Data Store (CDS), or the Meteorological Archival and Retrieval System (MARS) at ECMWF computer systems.
 
-(*): required if you want to use the Copernicus Data Store (CDS) Python API. See https://cds.climate.copernicus.eu/api-how-to for information on how to setup the API.
+> [!IMPORTANT]
+> In September 2024, Copernicus upgraded the Copernicus and Atmosphere Data Stores (CDS/ADS), introducing changes in the NetCDF file structure. The updated files now have different dimension names, time units, and even some reordered dimensions (!!). Unfortunately, these changes made the new NetCDF files incompatible with older versions or files extracted from MARS. Although (LS)<sup>2</sup>D briefly supported the new format, this led to several issues. Therefore, starting November 2024, (LS)<sup>2</sup>D will automatically patch new NetCDF files to ensure compatibility with the previous NetCDF file structure. On the user side, nothing should change:
+> - Old NetCDF files from CDS or MARS remain compatible.
+> - New NetCDF files from CDS/ADS are automatically patched after download.
+> - Unpatched new NetCDF files are patched once prior to reading.
+>   
+> To upgrade to the new CDS and ADS, please follow the steps described [here](https://confluence.ecmwf.int/display/CKB/Please+read%3A+CDS+and+ADS+migrating+to+new+infrastructure%3A+Common+Data+Store+%28CDS%29+Engine). If (LS)<sup>2</sup>D was installed using `pip`, upgrade (LS)<sup>2</sup>D with `pip install --upgrade ls2d`.
 
-### Setup
+### References
 
-In the future, (LS)<sup>2</sup>D will be uploaded to PyPI (allowing for a simple `pip install ls2d`). For now, download the (LS)<sup>2</sup>D source code, e.g. with `git`:
+(LS)<sup>2</sup>D is described in:
+
+B.J.H. van Stratum, C.C. van Heerwaarden, & J. Vilà-Guerau de Arellano (2023). *The benefits and challenges of downscaling a global reanalysis with doubly-periodic large-eddy simulations.* JAMES, https://doi.org/10.1029/2023MS003750
+
+If you use (LS)<sup>2</sup>D, we kindly request citing this paper.
+
+### Installation
+
+If you want to use CDS to download the ERA5 data, then please start by following the steps explained at https://cds.climate.copernicus.eu/api-how-to .
+
+#### PyPI
+
+It is easiest to install (LS)<sup>2</sup>D from PyPI:
+
+    pip install ls2d
+    
+By default, this excludes the `cdsapi` as a dependency. If you do want to install that as a dependency, use:
+    
+    pip install ls2d[cds]
+   
+#### Manual
+
+For a manual installation, you can clone the package from Github:
 
     git clone https://github.com/LS2D/LS2D.git
 
@@ -22,14 +45,14 @@ In each script where you want to use (LS)<sup>2</sup>D, add the (LS)<sup>2</sup>
 
     import sys
     sys.path.append('/path/to/LS2D')
-
+    
+You will have to manually install the dependencies with `pip install numpy scipy netCDF4 matplotlib cdsapi`.
+    
 ### Usage
 
-An example script is provided in `examples/example_1.py`, which downloads the ERA5 data, calculates the initial conditions and large scale forcings, and creates an example plot.
+Some examples are provided at https://github.com/LS2D/LS2D/tree/main/examples. The script `example_1.py` downloads the ERA5 data, calculates the initial conditions and large scale forcings, and creates an example plot.
 
-The examples directory also contains example cases for:
-- MicroHH (https://github.com/microhh/microhh)
-- DALES (https://github.com/dalesteam/dales).
+The examples directory also contains example cases for MicroHH (https://github.com/microhh/microhh).
 
 ### Downloading ERA5 data
 

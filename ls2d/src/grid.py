@@ -1,7 +1,7 @@
 #
 # This file is part of LS2D.
 #
-# Copyright (c) 2017-2022 Wageningen University & Research
+# Copyright (c) 2017-2024 Wageningen University & Research
 # Author: Bart van Stratum (WUR)
 #
 # LS2D is free software: you can redistribute it and/or modify
@@ -31,6 +31,7 @@ class _Grid:
         self.dz0  = dz0
 
         self.z = np.zeros(kmax)
+        self.zh = np.zeros(kmax+1)
         self.dz = np.zeros(kmax)
         self.zsize = None
 
@@ -66,6 +67,7 @@ class Grid_equidist(_Grid):
 
         self.zsize = kmax * dz0
         self.z[:]  = np.arange(dz0/2, self.zsize, dz0)
+        self.zh[:] = np.arange(0, self.zsize+0.1, dz0)
         self.dz[:] = dz0
 
 
@@ -107,16 +109,26 @@ class Grid_stretched(_Grid):
 
         self.zsize = self.z[kmax-1] + 0.5*self.dz[kmax-1]
 
+        self.zh[1:-1] = 0.5 * (self.z[1:] + self.z[:-1])
+        self.zh[0] = 0
+        self.zh[-1] = self.zsize
+
 
 class Grid_linear_stretched(_Grid):
     def __init__(self, kmax, dz0, alpha):
         _Grid.__init__(self, kmax, dz0)
 
         self.dz[:] = dz0 * (1 + alpha)**np.arange(kmax)
-        zh         = np.zeros(kmax+1)
-        zh[1:]     = np.cumsum(self.dz)
-        self.z[:]  = 0.5 * (zh[1:] + zh[:-1])
-        self.zsize = zh[-1]
+        self.zh = np.zeros(kmax+1)
+        self.zh[1:] = np.cumsum(self.dz)
+        self.z[:] = 0.5 * (self.zh[1:] + self.zh[:-1])
+
+        self.zsize = self.z[kmax-1] + 0.5*self.dz[kmax-1]
+
+        # Re-calculate zh as center between z, to stay in line with MicroHH definition.
+        self.zh[1:-1] = 0.5 * (self.z[1:] + self.z[:-1])
+        self.zh[0] = 0
+        self.zh[-1] = self.zsize
 
 
 class Grid_stretched_manual(_Grid):
@@ -134,3 +146,47 @@ class Grid_stretched_manual(_Grid):
             self.z[k] = self.z[k-1] + self.dz[k]
 
         self.zsize = self.z[kmax-1] + 0.5*self.dz[kmax-1]
+
+        self.zh[1:-1] = 0.5 * (self.z[1:] + self.z[:-1])
+        self.zh[0] = 0
+        self.zh[-1] = self.zsize
+
+
+if __name__ == '__main__':
+    """
+    For debug/testing.
+    """
+
+    grid1 = Grid_equidist(kmax=10, dz0=20)
+
+    grid2 = Grid_linear_stretched(kmax=10, dz0=10, alpha=0.1)
+
+    heights = [0,50,10000]
+    alpha = [1.02, 1.2]
+    grid3 = Grid_stretched_manual(kmax=10, dz0=10, heights=heights, factors=alpha)
+
+    grid4 = Grid_stretched(kmax=10, dz0=10, nloc1=5, nbuf1=5, dz1=25)
+
+    # Plot!
+    pl.figure()
+
+    def plot_grid(grid, color, x, label):
+        pl.plot(np.ones_like(grid.z)*x, grid.z, '-o', color=color, ms=5, label=f'{label}')
+        pl.plot(np.ones_like(grid.zh)*x, grid.zh, '-x', color=color, ms=5)
+
+    pl.subplot(121)
+    plot_grid(grid1, 'tab:red', 0, 'Grid_equidist')
+    plot_grid(grid2, 'tab:blue', 1, 'Grid_linear_stretched')
+    plot_grid(grid3, 'tab:green', 2, 'Grid_stretched_manual')
+    plot_grid(grid4, 'tab:purple', 3, 'Grid_stretched')
+    pl.xlabel(r'-')
+    pl.ylabel(r'$z$ (m)')
+    pl.legend()
+
+    pl.subplot(122)
+    pl.plot(grid1.dz, grid1.z, '-o', color='tab:red')
+    pl.plot(grid2.dz, grid2.z, '-o', color='tab:blue')
+    pl.plot(grid3.dz, grid3.z, '-o', color='tab:green')
+    pl.plot(grid4.dz, grid4.z, '-o', color='tab:purple')
+    pl.xlabel(r'$\Delta$ z (m)')
+    pl.ylabel(r'$z$ (m)')

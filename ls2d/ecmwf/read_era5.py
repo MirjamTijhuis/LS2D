@@ -1,7 +1,7 @@
 #
 # This file is part of LS2D.
 #
-# Copyright (c) 2017-2022 Wageningen University & Research
+# Copyright (c) 2017-2024 Wageningen University & Research
 # Author: Bart van Stratum (WUR)
 #
 # LS2D is free software: you can redistribute it and/or modify
@@ -36,10 +36,14 @@ from ls2d.src.messages import *
 import ls2d.ecmwf.era_tools as era_tools
 from ls2d.ecmwf.IFS_tools import IFS_tools
 
+from ls2d.ecmwf.patch_cds_ads import patch_netcdf
+
 # Constants
 Rd = 287.04
 Rv = 461.5
 ep = Rd/Rv
+
+ifs_tools = IFS_tools('L137')
 
 
 class Slice:
@@ -115,6 +119,15 @@ class Read_era5:
         files_missing += check_files(an_pres_files )
         if files_missing:
             error('One or more required ERA5 files are missing..')
+
+        # Check if files are from new CDS, which require patching.
+        # This is only a fallback option, in case someone has unpatched NetCDF files.
+        # The patching is now automatically done after downloading the files.
+        for f in an_sfc_files + an_model_files + an_pres_files:
+            ds = xr.open_dataset(f)
+            if 'valid_time' in ds.dims:
+                ds.close()
+                patch_netcdf(f)
 
         # Open NetCDF files: MFDataset automatically merges the files / time dimensions
         self.fsa = nc4.MFDataset(an_sfc_files,   aggdim='time')
@@ -231,9 +244,9 @@ class Read_era5:
         self.z0h =  get_variable(self.fsa, 'flsr', s2d, np.exp)  # Surface roughness length heat (m)
         self.ps  =  get_variable(self.fsa, 'sp',   s2d)  # Surface pressure (Pa)
 
-        self.soil_type     = get_variable(self.fsa, 'slt', s2d, np.round, np.int)  # Soil type (-)
-        self.veg_type_low  = get_variable(self.fsa, 'tvl', s2d, np.round, np.int)  # Low vegetation type (-)
-        self.veg_type_high = get_variable(self.fsa, 'tvh', s2d, np.round, np.int)  # High vegetation type (-)
+        self.soil_type     = get_variable(self.fsa, 'slt', s2d, np.round, np.int32)  # Soil type (-)
+        self.veg_type_low  = get_variable(self.fsa, 'tvl', s2d, np.round, np.int32)  # Low vegetation type (-)
+        self.veg_type_high = get_variable(self.fsa, 'tvh', s2d, np.round, np.int32)  # High vegetation type (-)
 
         self.lai_low  = get_variable(self.fsa, 'lai_lv', s2d)  # LAI low veg (-)
         self.lai_high = get_variable(self.fsa, 'lai_hv', s2d)  # LAI high veg (-)
@@ -253,7 +266,7 @@ class Read_era5:
         self.theta_soil4 = get_variable(self.fsa, 'swvl4', s2d)  # Bottom soil layer moistsure (-)
 
         # Pressure level data:
-        self.z_p = get_variable(self.fpa, 'z', s3d) / IFS_tools.grav  # Geopotential height on pressure levels (m)
+        self.z_p = get_variable(self.fpa, 'z', s3d) / ifs_tools.grav  # Geopotential height on pressure levels (m)
         self.p_p = get_variable(self.fpa, 'level', s1d) * 100         # Pressure levels (Pa)
 
         # Convert ozone from mass mixing ratio to volume mixing ratio
@@ -268,7 +281,7 @@ class Read_era5:
 
         self.ql  = self.qc + self.qi + self.qr + self.qs  # Total liquid/solid specific humidity (kg kg-1)
         self.qt  = self.q + self.ql                       # Total specific humidity (kg kg-1)
-        self.Tv  = IFS_tools.calc_virtual_temp(
+        self.Tv  = ifs_tools.calc_virtual_temp(
                 self.T, self.q, self.qc, self.qi, self.qr, self.qs)  # Virtual temp on full levels (K)
 
         # Calculate half level pressure and heights
@@ -279,27 +292,27 @@ class Read_era5:
         for t in range(self.ntime):
             for la in range(self.nlat):
                 for lo in range(self.nlon):
-                    self.ph[t,:,la,lo] = IFS_tools.calc_half_level_pressure(self.ps[t,la,lo])
-                    self.zh[t,:,la,lo] = IFS_tools.calc_half_level_Zg(self.ph[t,:,la,lo], self.Tv[t,:,la,lo])
+                    self.ph[t,:,la,lo] = ifs_tools.calc_half_level_pressure(self.ps[t,la,lo])
+                    self.zh[t,:,la,lo] = ifs_tools.calc_half_level_Zg(self.ph[t,:,la,lo], self.Tv[t,:,la,lo])
 
         # Full level pressure and height as interpolation of the half level values
         self.p  = 0.5 * (self.ph[:,1:,:,:] + self.ph[:,:-1:,:])  # Full level pressure (Pa)
         self.z  = 0.5 * (self.zh[:,1:,:,:] + self.zh[:,:-1:,:])  # Full level height (m)
 
         # Other derived quantities
-        self.exn  = IFS_tools.calc_exner(self.p)  # Exner on full model levels (-)
+        self.exn  = ifs_tools.calc_exner(self.p)  # Exner on full model levels (-)
         self.th   = (self.T / self.exn)  # Potential temperature (K)
-        self.thl  = self.th - IFS_tools.Lv / (IFS_tools.cpd * self.exn) * self.ql  # Liquid water potential temperature (K)
-        self.rho  = self.p / (IFS_tools.Rd * self.Tv)  # Density at full levels (kg m-3)
-        self.wls  = -self.w / (self.rho * IFS_tools.grav)  # Vertical velocity (m s-1)
+        self.thl  = self.th - ifs_tools.Lv / (ifs_tools.cpd * self.exn) * self.ql  # Liquid water potential temperature (K)
+        self.rho  = self.p / (ifs_tools.Rd * self.Tv)  # Density at full levels (kg m-3)
+        self.wls  = -self.w / (self.rho * ifs_tools.grav)  # Vertical velocity (m s-1)
         self.U    = (self.u**2. + self.v**2)**0.5  # Absolute horizontal wind (m s-1)
 
-        self.Tvs  = IFS_tools.calc_virtual_temp(self.Ts, self.q[:,0])  # Estimate surface Tv using lowest model q (...)
-        self.rhos = self.ph[:,0] / (IFS_tools.Rd * self.Tvs)  # Surface density (kg m-3)
-        self.exns = IFS_tools.calc_exner(self.ps)  # Exner at surface (-)
-        self.wths = self.H / (self.rhos * IFS_tools.cpd * self.exns)  # Surface kinematic heat flux (K m s-1)
+        self.Tvs  = ifs_tools.calc_virtual_temp(self.Ts, self.q[:,0])  # Estimate surface Tv using lowest model q (...)
+        self.rhos = self.ph[:,0] / (ifs_tools.Rd * self.Tvs)  # Surface density (kg m-3)
+        self.exns = ifs_tools.calc_exner(self.ps)  # Exner at surface (-)
+        self.wths = self.H / (self.rhos * ifs_tools.cpd * self.exns)  # Surface kinematic heat flux (K m s-1)
 
-        self.fc  = 2 * 7.2921e-5 * np.sin(np.deg2rad(self.settings['central_lat']))  # Coriolis parameter
+        self.fc = 2 * 7.2921e-5 * np.sin(np.deg2rad(self.settings['central_lat']))  # Coriolis parameter
 
         # Store soil temperature, and moisture content, in 3D array
         self.z_soil = np.array([-0.035, -0.175, -0.64, -1.945])
@@ -336,6 +349,12 @@ class Read_era5:
                 .format(self.lats[self.j], self.lons[self.i],
                         self.settings['central_lat'], self.settings['central_lon'], distance/1000.))
 
+        # Print averaging area.
+        dlon = (1+2*n_av) * float(self.lons[1] - self.lons[0])
+        dlat = (1+2*n_av) * float(self.lats[1] - self.lats[0])
+        self.area = f'{dlon:.2f}°×{dlat:.2f}°'
+        message(f'Averaging ERA5 over a {self.area} spatial area.')
+
         # Start and end indices of averaging domain:
         istart = self.i - n_av
         iend   = self.i + n_av + 1
@@ -369,7 +388,7 @@ class Read_era5:
             data = getattr(self, var)
             setattr(self, '{}_nn'.format(var), data[0, self.j, self.i])
 
-        if self.veg_type_low_nn == 0 or self.veg_type_high_nn == 0 or self.soil_type_nn == 0:
+        if self.soil_type_nn == 0:
             warning('Selected grid point is water/sea! Setting vegetation/soil indexes to 1e9.')
 
             self.soil_type_nn = int(1e9)
@@ -425,38 +444,25 @@ class Read_era5:
             dzdx = np.gradient(self.z_p, axis=3) / dxdi[None, None, :, :]
             dzdy = np.gradient(self.z_p, axis=2) / dydj[None, None, :, :]
 
-            ug = -IFS_tools.grav / self.fc * dzdy
-            vg =  IFS_tools.grav / self.fc * dzdx
+            self.ug_p = -ifs_tools.grav / self.fc * dzdy
+            self.vg_p =  ifs_tools.grav / self.fc * dzdx
 
-            ug_p_mean = ug[center4d].mean(axis=(2,3))
-            vg_p_mean = vg[center4d].mean(axis=(2,3))
+            ug_p_mean = self.ug_p[center4d].mean(axis=(2,3))
+            vg_p_mean = self.vg_p[center4d].mean(axis=(2,3))
 
-        #if (method == '2nd'):
+            # Bonus for large domains; spatial (ug,vg) on model levels.
+            # Use Scipy's interpolation, as it can extrapolate (in case ps > 1000 hPa)
+            self.ug = np.zeros_like(self.u)
+            self.vg = np.zeros_like(self.u)
 
-        #    s = Slice(istart, iend, jstart, jend)
+            for t in range(self.ntime):
+                for j in range(self.nlat):
+                    for i in range(self.nlon):
+                        self.ug[t,:,j,i] = interpolate.interp1d(
+                            self.p_p, self.ug_p[t,:,j,i], fill_value='extrapolate')(self.p[t,:,j,i])
+                        self.vg[t,:,j,i] = interpolate.interp1d(
+                            self.p_p, self.vg_p[t,:,j,i], fill_value='extrapolate')(self.p[t,:,j,i])
 
-        #    # Calculate advective tendencies
-        #    self.dtthl_advec_mean = (
-        #        -self.u[s(0,0)] * fd.grad2c( self.thl[s(0,-1)], self.thl[s(0,+1)], dx) \
-        #        -self.v[s(0,0)] * fd.grad2c( self.thl[s(-1,0)], self.thl[s(+1,0)], dy) ).mean(axis=(2,3))
-
-        #    self.dtqt_advec_mean = (
-        #        -self.u[s(0,0)] * fd.grad2c( self.qt[s(0,-1)], self.qt[s(0,+1)], dx) \
-        #        -self.v[s(0,0)] * fd.grad2c( self.qt[s(-1,0)], self.qt[s(+1,0)], dy) ).mean(axis=(2,3))
-
-        #    self.dtu_advec_mean = (
-        #        -self.u[s(0,0)] * fd.grad2c( self.u[s(0,-1)], self.u[s(0,+1)], dx) \
-        #        -self.v[s(0,0)] * fd.grad2c( self.u[s(-1,0)], self.u[s(+1,0)], dy) ).mean(axis=(2,3))
-
-        #    self.dtv_advec_mean = (
-        #        -self.u[s(0,0)] * fd.grad2c( self.v[s(0,-1)], self.v[s(0,+1)], dx) \
-        #        -self.v[s(0,0)] * fd.grad2c( self.v[s(-1,0)], self.v[s(+1,0)], dy) ).mean(axis=(2,3))
-
-        #    # Geostrophic wind (gradient geopotential height on constant pressure levels)
-        #    vg_p_mean = (  IFS_tools.grav / self.fc * fd.grad2c(
-        #        self.z_p[s(0,-1)], self.z_p[s(0,+1)], dx) ).mean(axis=(2,3))
-        #    ug_p_mean = ( -IFS_tools.grav / self.fc * fd.grad2c(
-        #        self.z_p[s(-1,0)], self.z_p[s(+1,0)], dy) ).mean(axis=(2,3))
 
         elif (method == '4th'):
 
@@ -493,16 +499,17 @@ class Read_era5:
 
             # Geostrophic wind (gradient geopotential height on constant pressure levels)
             vg_p_mean = (
-                IFS_tools.grav / self.fc * fd.grad4c(
+                ifs_tools.grav / self.fc * fd.grad4c(
                     self.z_p[s(0,-2)], self.z_p[s(0,-1)], self.z_p[s(0,+1)], self.z_p[s(0,+2)], dx)
                         ).mean(axis=(2,3))
             ug_p_mean = (
-               -IFS_tools.grav / self.fc * fd.grad4c(
+               -ifs_tools.grav / self.fc * fd.grad4c(
                     self.z_p[s(-2,0)], self.z_p[s(-1,0)], self.z_p[s(+1,0)], self.z_p[s(+2,0)], dy)
                         ).mean(axis=(2,3))
 
-        # Interpolate geostrophic wind onto model grid. Use Scipy's interpolation,
-        # as it can extrapolate (in case ps > 1000 hPa)
+
+        # Interpolate geostrophic wind onto model grid.
+        # Use Scipy's interpolation, as it can extrapolate (in case ps > 1000 hPa)
         self.ug_mean = np.zeros_like(self.p_mean)
         self.vg_mean = np.zeros_like(self.p_mean)
 
@@ -544,13 +551,13 @@ class Read_era5:
             rf[0] = 1.-rf.sum()
             return rf[::-1]
 
-
         if gridpoint_is_land:
             self.root_frac_low_nn  = calc_root_fraction(self.veg_type_low_nn-1)
             self.root_frac_high_nn = calc_root_fraction(self.veg_type_high_nn-1)
         else:
             self.root_frac_low_nn = np.zeros(4)-1
             self.root_frac_high_nn = np.zeros(4)-1
+
 
     def get_les_input(self, z):
         """
@@ -635,7 +642,7 @@ class Read_era5:
         add_ds_var(ds, 't_lay', self.T_mean, ('time', 'lay'), 'full level temperature radiation', 'K')
         add_ds_var(ds, 't_lev', self.Th_mean, ('time', 'lev'), 'half level temperature radiation', 'K')
 
-        h2o_lay = self.qt_mean / (ep - ep*self.qt_mean)
+        h2o_lay = self.qt_mean / (ep - ep * self.qt_mean)
         add_ds_var(ds, 'h2o_lay', h2o_lay, ('time', 'lay'), 'moisture volume mixing ratio', '')
         add_ds_var(ds, 'o3_lay', self.o3_mean, ('time', 'lay'), 'ozone volume mixing ratio radiation', 'ppmv')
 
@@ -669,5 +676,11 @@ class Read_era5:
 
         # Misc
         ds.attrs['fc'] = self.fc
+        ds.attrs['central_lon'] = self.settings['central_lon']
+        ds.attrs['central_lat'] = self.settings['central_lat']
+        ds.attrs['area'] = f'{self.area} spatial average'
+        ds.attrs['source'] = 'ERA5 + (LS)²D'
+        ds.attrs['description'] = 'Generated by (LS)²D: https://github.com/LS2D & https://pypi.org/project/ls2d)'
+        ds.attrs['reference'] = 'van Stratum et al. (2023). The benefits and challenges of downscaling a global reanalysis with doubly-periodic large-eddy simulations. JAMES, https://doi.org/10.1029/2023MS003750'
 
         return ds
